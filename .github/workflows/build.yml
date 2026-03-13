@@ -1,0 +1,67 @@
+name: Build Executables
+
+# This tells GitHub to run this script every time you upload new code, 
+# or when you click the "Run Workflow" button manually.
+on:
+  push:
+    branches:[ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # This matrix tells GitHub to spawn 3 different computers!
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+
+    # ---------------------------------------------
+    # WINDOWS BUILD (Uses the .ico file)
+    # ---------------------------------------------
+    - name: Build Windows EXE
+      if: matrix.os == 'windows-latest'
+      run: pyinstaller --onefile --windowed --icon="gaicon.ico" --name "Gaming_Alexandria_Researcher" app.py
+
+    - name: Upload Windows File
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Windows-Executable
+        path: dist/*.exe
+
+    # ---------------------------------------------
+    # MAC & LINUX BUILD (Skips the Windows .ico file)
+    # ---------------------------------------------
+    - name: Build Mac and Linux
+      if: matrix.os != 'windows-latest'
+      run: pyinstaller --onefile --windowed --name "Gaming_Alexandria_Researcher" app.py
+
+    - name: Upload Mac File
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Mac-Executable
+        path: dist/Gaming_Alexandria_Researcher.app
+
+    - name: Upload Linux File
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Linux-Executable
+        path: dist/Gaming_Alexandria_Researcher
