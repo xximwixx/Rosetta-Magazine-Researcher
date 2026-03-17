@@ -2,7 +2,7 @@
 
 A fully offline-capable archive viewer with smart search, text formatting, and community catalogs to download magazines along with translations and transcriptions. Designed to seamlessly read scanned PDFs alongside transcribed text, English translations, and rich metadata.
 
-Join the Official Discord here - https://discord.gg/aFe4YaBT
+[![Discord Link](https://www.gamingalexandria.com/ga-researcher/discord.png)](https://discord.gg/aFe4YaBT)
 
 ## 📥 Download & Installation
 
