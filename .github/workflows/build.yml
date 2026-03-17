@@ -38,7 +38,7 @@ jobs:
     # ---------------------------------------------
     - name: Build Windows EXE
       if: matrix.os == 'windows-latest'
-      run: pyinstaller --onefile --windowed --icon="gaicon.ico" --name "Gaming Alexandria Researcher" app.py
+      run: pyinstaller --onefile --windowed --icon="rosettaicon.ico" --name "Rosetta Magazine Researcher" app.py
 
     - name: Upload Windows File
       if: matrix.os == 'windows-latest'
@@ -53,27 +53,27 @@ jobs:
     - name: Build Mac
       if: matrix.os == 'macos-latest'
       run: |
-        pyinstaller --onefile --windowed --name "Gaming_Alexandria_Researcher" app.py
+        pyinstaller --onefile --windowed --name "Rosetta_Magazine_Researcher" app.py
         cd dist
-        zip -r Gaming_Alexandria_Researcher_Mac.zip Gaming_Alexandria_Researcher.app
+        zip -r Rosetta_Magazine_Researcher_Mac.zip Rosetta_Magazine_Researcher.app
 
     - name: Upload Mac File
       if: matrix.os == 'macos-latest'
       uses: actions/upload-artifact@v4
       with:
         name: Mac-Executable
-        path: dist/Gaming_Alexandria_Researcher_Mac.zip
+        path: dist/Rosetta_Magazine_Researcher_Mac.zip
 
     # ---------------------------------------------
     # LINUX BUILD
     # ---------------------------------------------
     - name: Build Linux
       if: matrix.os == 'ubuntu-latest'
-      run: pyinstaller --onefile --windowed --name "Gaming_Alexandria_Researcher" app.py
+      run: pyinstaller --onefile --windowed --name "Rosetta_Magazine_Researcher" app.py
 
     - name: Upload Linux File
       if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-artifact@v4
       with:
         name: Linux-Executable
-        path: dist/Gaming_Alexandria_Researcher
+        path: dist/Rosetta_Magazine_Researcher
