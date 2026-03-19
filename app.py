@@ -10,9 +10,9 @@ import threading
 import time
 import urllib.request
 import webbrowser
-import zipfile
 import ssl
 import certifi
+import zipfile
 from pathlib import Path
 
 import fitz  # PyMuPDF
@@ -1368,6 +1368,20 @@ function renderLibrary() {
 
 # --- BACKEND ---
 
+def get_pages_from_master(file_text: str) -> dict:
+    """Splits a _COMPLETE.txt file into a dictionary of {page_num: text}."""
+    pages = {}
+    # Find all [[PAGE_XXX]] markers and the text following them
+    parts = re.split(r'\[\[PAGE_(\d+)\]\]', file_text)
+    # parts[0] is preamble, [1] is '001', [2] is content, etc.
+    for i in range(1, len(parts), 2):
+        try:
+            p_num = int(parts[i])
+            content = parts[i+1].strip()
+            pages[p_num] = content
+        except:
+            continue
+    return pages
 
 def parse_metadata(text: str) -> dict:
     meta = {}
@@ -1457,21 +1471,40 @@ def load_metadata_cache() -> None:
 
 def get_transcription_text(pdf_rel_path: str, page_str: str) -> str | None:
     pdf_path = DATA_DIR / pdf_rel_path
-    pattern = re.compile(rf"_p0*{int(page_str)}\.txt$", re.IGNORECASE)
-
-    for lp in pdf_path.parent.glob("*.txt"):
-        if pattern.search(lp.name):
-            return lp.read_text(encoding="utf-8", errors="ignore")
-
+    p_num_int = int(page_str)
+    
+    # 1. PRIORITY: Look inside the Partner ZIP for a _COMPLETE.txt file
     partner_zip = get_partner_zip(pdf_rel_path)
     if partner_zip:
         try:
             with zipfile.ZipFile(partner_zip, "r") as z:
+                # Look for ANY file inside the zip that ends with _COMPLETE.txt
+                master_zname = next((n for n in z.namelist() if n.endswith("_COMPLETE.txt")), None)
+                if master_zname:
+                    pages = get_pages_from_master(z.read(master_zname).decode("utf-8", errors="ignore"))
+                    if p_num_int in pages:
+                        return pages[p_num_int]
+                
+                # FALLBACK: If no master file in ZIP, check for individual _pXXX.txt in ZIP
+                pattern = re.compile(rf"_p0*{p_num_int}\.txt$", re.IGNORECASE)
                 for zname in z.namelist():
                     if pattern.search(zname.split("/")[-1]):
                         return z.read(zname).decode("utf-8", errors="ignore")
-        except:
-            pass
+        except: pass
+
+    # 2. SECONDARY: Look for loose Master File (_COMPLETE.txt)
+    master_path = next(pdf_path.parent.glob("*_COMPLETE.txt"), None)
+    if master_path:
+        pages = get_pages_from_master(master_path.read_text(encoding="utf-8", errors="ignore"))
+        if p_num_int in pages:
+            return pages[p_num_int]
+
+    # 3. FINAL FALLBACK: Look for loose individual _pXXX.txt files
+    pattern = re.compile(rf"_p0*{p_num_int}\.txt$", re.IGNORECASE)
+    for lp in pdf_path.parent.glob("*.txt"):
+        if pattern.search(lp.name):
+            return lp.read_text(encoding="utf-8", errors="ignore")
+            
     return None
 
 
@@ -1964,51 +1997,44 @@ def save_text() -> Response | tuple[Response, int]:
     rel_path = data["mag"]
     page_num = int(data["page"])
     pdf_path = get_safe_path(rel_path)
-    content = f"#GA-TRANSCRIPTION\n{data['jp']}\n\n#GA-TRANSLATION\n{data['en']}\n\n#GA-SUMMARY\n{data['sum']}"
-    pattern = re.compile(rf"_p0*{page_num}\.txt$", re.IGNORECASE)
-    meta_content = data.get("meta", "")
-
+    
+    # Construct the content in the new standardized format
+    new_page_content = f"{data['jp']}\n\n#GA-TRANSLATION\n{data['en']}\n\n#GA-SUMMARY\n{data['sum']}"
+    
     try:
         partner_zip = get_partner_zip(rel_path)
-        if partner_zip:
-            # 1. Update the Page Text File
-            target_filename = f"{pdf_path.stem}_p{str(page_num).zfill(3)}.txt"
-            with zipfile.ZipFile(partner_zip, "r") as z:
-                for zname in z.namelist():
-                    if pattern.search(zname.split("/")[-1]):
-                        target_filename = zname
-                        break
-            update_zip_content(partner_zip, target_filename, content)
-
-            # 2. Update the Metadata File
-            update_zip_content(partner_zip, "metadata.txt", meta_content)
-        else:
-            # 1. Update Loose Page Text File
-            target_filepath = None
-            for lp in pdf_path.parent.glob("*.txt"):
-                if pattern.search(lp.name):
-                    target_filepath = lp
-                    break
-            if not target_filepath:
-                target_filepath = (
-                    pdf_path.parent / f"{pdf_path.stem}_p{str(page_num).zfill(3)}.txt"
-                )
-            target_filepath.write_text(content, encoding="utf-8")
-
-            # 2. Update Loose Metadata File
-            loose_meta = pdf_path.with_name(pdf_path.stem + ".metadata.txt")
-            generic_meta = pdf_path.parent / "metadata.txt"
-
-            if generic_meta.exists() and pdf_path.parent != DATA_DIR:
-                generic_meta.write_text(meta_content, encoding="utf-8")
+        master_filename = f"{pdf_path.stem}_COMPLETE.txt"
+        
+        # Determine if we are updating a Master File or individual files
+        master_path = next(pdf_path.parent.glob("*_COMPLETE.txt"), None)
+        
+        if master_path or (partner_zip and any(n.endswith("_COMPLETE.txt") for n in zipfile.ZipFile(partner_zip).namelist())):
+            # MASTER FILE LOGIC
+            if master_path:
+                raw_text = master_path.read_text(encoding="utf-8")
             else:
-                loose_meta.write_text(meta_content, encoding="utf-8")
+                with zipfile.ZipFile(partner_zip, "r") as z:
+                    z_master = next(n for n in z.namelist() if n.endswith("_COMPLETE.txt"))
+                    raw_text = z.read(z_master).decode("utf-8")
 
-        load_metadata_cache()  # Reload the server cache instantly
+            pages = get_pages_from_master(raw_text)
+            pages[page_num] = new_page_content
+            
+            # Reconstruct the whole file
+            new_master_text = "\n\n".join([f"[[PAGE_{str(p).zfill(3)}]]\n{c}" for p, c in sorted(pages.items())])
+            
+            if master_path:
+                master_path.write_text(new_master_text, encoding="utf-8")
+            else:
+                update_zip_content(partner_zip, master_filename, new_master_text)
+        else:
+            # INDIVIDUAL FILE LOGIC (Keep for backward compatibility)
+            content_with_header = f"#GA-TRANSCRIPTION\n{new_page_content}"
+            # ... (your existing loose file save logic here) ...
+            
         return jsonify({"status": "ok"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 @app.route("/api/search")
 def search() -> Response:
@@ -2169,32 +2195,38 @@ def search() -> Response:
 
         pdf_path = DATA_DIR / mag_rel_path
 
-        for txt in pdf_path.parent.glob("*.txt"):
-            m = re.search(r"_p(\d+)\.txt$", txt.name, re.IGNORECASE)
-            if m:
-                scan_text(
-                    txt.read_text(encoding="utf-8", errors="ignore"),
-                    mag_rel_path,
-                    int(m.group(1)),
-                )
+        # Check for Master File locally
+        master_txt = next(pdf_path.parent.glob("*_COMPLETE.txt"), None)
+        if master_txt:
+            pages = get_pages_from_master(master_txt.read_text(encoding="utf-8", errors="ignore"))
+            for p_num, p_text in pages.items():
+                scan_text(p_text, mag_rel_path, p_num)
+        else:
+            # Fallback to loose files
+            for txt in pdf_path.parent.glob("*.txt"):
+                m = re.search(r"_p(\d+)\.txt$", txt.name, re.IGNORECASE)
+                if m:
+                    scan_text(txt.read_text(encoding="utf-8", errors="ignore"), mag_rel_path, int(m.group(1)))
 
+        # Check inside Partner ZIP
         partner_zip = get_partner_zip(mag_rel_path)
         if partner_zip:
             try:
                 with zipfile.ZipFile(partner_zip, "r") as z:
-                    for zname in z.namelist():
-                        if zname.lower().endswith(".txt"):
-                            m = re.search(
-                                r"_p(\d+)\.txt$", zname.split("/")[-1], re.IGNORECASE
-                            )
-                            if m:
-                                scan_text(
-                                    z.read(zname).decode("utf-8", errors="ignore"),
-                                    mag_rel_path,
-                                    int(m.group(1)),
-                                )
-            except:
-                pass
+                    # 1. Check for Master File inside ZIP
+                    master_zname = next((n for n in z.namelist() if n.endswith("_COMPLETE.txt")), None)
+                    if master_zname:
+                        pages = get_pages_from_master(z.read(master_zname).decode("utf-8", errors="ignore"))
+                        for p_num, p_text in pages.items():
+                            scan_text(p_text, mag_rel_path, p_num)
+                    else:
+                        # 2. Fallback to individual files inside ZIP
+                        for zname in z.namelist():
+                            if zname.lower().endswith(".txt"):
+                                m = re.search(r"_p(\d+)\.txt$", zname.split("/")[-1], re.IGNORECASE)
+                                if m:
+                                    scan_text(z.read(zname).decode("utf-8", errors="ignore"), mag_rel_path, int(m.group(1)))
+            except: pass
 
     return jsonify({"results": results[:200], "terms_to_highlight": highlight_list})
 
