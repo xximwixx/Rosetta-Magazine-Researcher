@@ -53,12 +53,18 @@ def get_partner_zip(pdf_rel_path: str) -> Path | None:
     pdf_path = data_dir / pdf_rel_path
     if not pdf_path.exists():
         return None
+    
+    # 1. Try exact match: MyMag.pdf -> MyMag.zip
     direct_zip = pdf_path.with_suffix(".zip")
     if direct_zip.exists():
         return direct_zip
-    zips_in_folder = list(pdf_path.parent.glob("*.zip"))
-    if len(zips_in_folder) == 1:
-        return zips_in_folder[0]
+        
+    # 2. Folder-based fallback: Only if we are NOT in the root directory
+    if pdf_path.parent != data_dir:
+        zips_in_folder = list(pdf_path.parent.glob("*.zip"))
+        if len(zips_in_folder) == 1:
+            return zips_in_folder[0]
+            
     return None
 
 

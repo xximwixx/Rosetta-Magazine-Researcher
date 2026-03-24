@@ -3,3 +3,10 @@ Magazines
 *.json
 __pycache__/
 *.pyc
+venv/
+build/
+dist/
+*.spec
+*.exe
+*.zip
+*.bat
