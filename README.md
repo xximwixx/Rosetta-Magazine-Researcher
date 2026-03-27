@@ -23,7 +23,7 @@ Use the **Library** button to download new issues from the cloud, or the **Searc
 - **Zoom & Formatting:** Hover your mouse over a page to zoom. Click the **MD** button to toggle between formatted markdown and raw text.
 - **Font Size & Theme:** Use the slider at the bottom to adjust text size, and the ☀️ button to switch between Dark and Light mode.
 - **Bookmarks:** Click the ⭐ button to save your current page. You can add custom tags to your bookmarks to easily filter them in the Bookmarks sidebar tab!
-- **Editing:** Click **✏️ Edit** to fix typos in the translation or update the magazine's tags/metadata. Click **Save** when done!
+- **Editing:** Click **✏️ Edit** for quick inline fixes, or use the per-section **Open Editor** buttons for the larger visual editor. Metadata now opens in a structured form. Click **Save** when done!
 
 ---
 
