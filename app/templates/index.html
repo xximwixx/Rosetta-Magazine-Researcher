@@ -314,6 +314,40 @@
             border-bottom: 1px solid var(--border);
             padding-right: 56px;
         }
+        .editor-modal-header-main {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            width: 100%;
+            min-width: 0;
+        }
+        .editor-mode-controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 4px;
+            flex-shrink: 0;
+        }
+        .editor-mode-btn {
+            border: none;
+            background: transparent;
+            color: #cbd5e1;
+            border-radius: 999px;
+            padding: 7px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            cursor: pointer;
+        }
+        .editor-mode-btn:hover { background: rgba(138, 180, 248, 0.12); }
+        .editor-mode-btn.active {
+            background: var(--accent);
+            color: #111;
+        }
         .editor-modal-subtitle { font-size: 13px; color: #9aa0a6; }
         .editor-modal-body {
             padding: 18px 24px 24px;
@@ -408,6 +442,8 @@
         @media (max-width: 780px) {
             .metadata-grid { grid-template-columns: 1fr; }
             .meta-edit-card { flex-direction: column; align-items: flex-start; }
+            .editor-modal-header-main { flex-direction: column; align-items: flex-start; }
+            .editor-mode-controls { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
             .editor-modal-header,
             .editor-modal-footer,
             .editor-modal-body { padding-left: 16px; padding-right: 16px; }
@@ -597,9 +633,16 @@
     <div id="editor-modal-overlay" class="modal-overlay" onclick="closeContentEditor(event)">
         <div class="modal-content editor-modal-content" onclick="event.stopPropagation()">
             <div class="editor-modal-header">
-                <div>
-                    <h2 id="editor-modal-title" style="margin:0; color:var(--accent); font-size:22px;">Editor</h2>
-                    <div id="editor-modal-subtitle" class="editor-modal-subtitle">Visual editing with markdown storage.</div>
+                <div class="editor-modal-header-main">
+                    <div>
+                        <h2 id="editor-modal-title" style="margin:0; color:var(--accent); font-size:22px;">Editor</h2>
+                        <div id="editor-modal-subtitle" class="editor-modal-subtitle">Visual editing with markdown storage.</div>
+                    </div>
+                    <div class="editor-mode-controls">
+                        <button id="editor-mode-rich" class="editor-mode-btn active" type="button" onclick="setContentEditorMode('wysiwyg')">Rich</button>
+                        <button id="editor-mode-markdown" class="editor-mode-btn" type="button" onclick="setContentEditorMode('markdown')">Markdown</button>
+                        <button id="editor-mode-split" class="editor-mode-btn" type="button" onclick="setContentEditorMode('split')">Split</button>
+                    </div>
                 </div>
                 <span class="close-modal" onclick="closeContentEditor(event)">&times;</span>
             </div>
@@ -935,6 +978,7 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
         let currentModalItemId = null;
         let contentEditor = null;
         let activeContentEditorKey = null;
+        let contentEditorMode = 'wysiwyg';
 
         const CONTENT_EDITOR_FIELDS = {
             jp: {
@@ -1105,6 +1149,32 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
             }
         }
 
+        function updateContentEditorModeButtons() {
+            document.getElementById('editor-mode-rich').classList.toggle('active', contentEditorMode === 'wysiwyg');
+            document.getElementById('editor-mode-markdown').classList.toggle('active', contentEditorMode === 'markdown');
+            document.getElementById('editor-mode-split').classList.toggle('active', contentEditorMode === 'split');
+        }
+
+        function setContentEditorMode(mode) {
+            contentEditorMode = mode;
+            updateContentEditorModeButtons();
+
+            if (!contentEditor) return;
+
+            if (mode === 'wysiwyg') {
+                contentEditor.changePreviewStyle('tab');
+                contentEditor.changeMode('wysiwyg', true);
+            } else if (mode === 'markdown') {
+                contentEditor.changePreviewStyle('tab');
+                contentEditor.changeMode('markdown', true);
+            } else if (mode === 'split') {
+                contentEditor.changePreviewStyle('vertical');
+                contentEditor.changeMode('markdown', true);
+            }
+
+            setTimeout(syncContentEditorHeight, 0);
+        }
+
         function syncContentEditorTheme() {
             const editorRoot = document.querySelector('#editor-modal-host .toastui-editor-defaultUI');
             if (!editorRoot) return;
@@ -1122,9 +1192,11 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
             document.getElementById('editor-modal-title').innerText = field.title;
             document.getElementById('editor-modal-subtitle').innerText = field.subtitle;
             contentEditor.setMarkdown(document.getElementById(field.textareaId).value || "");
+            setContentEditorMode(contentEditorMode);
             syncContentEditorHeight();
             syncContentEditorTheme();
             setTimeout(() => {
+                setContentEditorMode(contentEditorMode);
                 syncContentEditorHeight();
                 contentEditor.focus();
             }, 0);
