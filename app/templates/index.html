@@ -1067,6 +1067,14 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
                 initialEditType: 'wysiwyg',
                 hideModeSwitch: true,
                 usageStatistics: false,
+                customHTMLRenderer: {
+                    softbreak() {
+                        return {
+                            type: 'text',
+                            content: ' ',
+                        };
+                    },
+                },
                 previewStyle: 'vertical',
                 toolbarItems: [
                     ['heading', 'bold', 'italic', 'strike'],
@@ -1075,6 +1083,12 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
                     ['table', 'link'],
                 ],
             });
+
+            if (contentEditor.convertor && contentEditor.convertor.toWwConvertors) {
+                contentEditor.convertor.toWwConvertors.softbreak = function(state) {
+                    state.addText(' ');
+                };
+            }
 
             syncContentEditorTheme();
         }
