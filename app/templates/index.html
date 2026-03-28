@@ -322,6 +322,35 @@
             color: #9aa0a6;
             font-size: 12px;
         }
+        .filter-input-wrap {
+            position: relative;
+            flex: 1;
+            min-width: 140px;
+        }
+        .filter-input-wrap input {
+            width: 100%;
+            box-sizing: border-box;
+            padding-right: 34px;
+        }
+        .filter-clear-btn {
+            position: absolute;
+            top: 50%;
+            right: 8px;
+            transform: translateY(-50%);
+            border: none;
+            background: transparent;
+            color: #9aa0a6;
+            font-size: 16px;
+            line-height: 1;
+            padding: 2px 4px;
+            cursor: pointer;
+            border-radius: 4px;
+            display: none;
+        }
+        .filter-clear-btn:hover {
+            color: #fff;
+            background: rgba(255,255,255,0.08);
+        }
         .editor-modal-content {
             width: min(1280px, 80vw);
             max-width: calc(100vw - 32px);
@@ -613,7 +642,10 @@
                 </div>
             </div>
             <div class="lib-filter-bar" style="gap:10px; font-size:13px;">
-                <input type="text" id="lib-filter-mag" list="lib-mag-datalist" style="flex:1; min-width:140px; box-sizing:border-box;" placeholder="Magazine Name" onkeyup="filterLibrary()">
+                <div class="filter-input-wrap">
+                    <input type="text" id="lib-filter-mag" list="lib-mag-datalist" placeholder="Magazine Name" oninput="syncLibraryMagazineFilterUi(); filterLibrary()">
+                    <button id="lib-filter-mag-clear" class="filter-clear-btn" type="button" aria-label="Clear magazine filter" onclick="clearLibraryMagazineFilter()">×</button>
+                </div>
                 <datalist id="lib-mag-datalist"></datalist>
 
                 <input type="text" id="lib-filter-pub" list="lib-pub-datalist" style="width:140px; box-sizing:border-box;" placeholder="Publisher" onkeyup="filterLibrary()">
@@ -1634,6 +1666,22 @@ let isMangaMode = false;
 
         function filterLibrary() { renderLibrary(); }
 
+        function syncLibraryMagazineFilterUi() {
+            const input = document.getElementById('lib-filter-mag');
+            const clearBtn = document.getElementById('lib-filter-mag-clear');
+            if (!input || !clearBtn) return;
+            clearBtn.style.display = input.value ? 'block' : 'none';
+        }
+
+        function clearLibraryMagazineFilter() {
+            const input = document.getElementById('lib-filter-mag');
+            if (!input) return;
+            input.value = '';
+            syncLibraryMagazineFilterUi();
+            filterLibrary();
+            input.focus();
+        }
+
 function renderLibrary() {
             const grid = document.getElementById('lib-grid');
             const magListContainer = document.getElementById('lib-mag-list');
@@ -1646,6 +1694,7 @@ function renderLibrary() {
             const filterTrans = document.getElementById('lib-filter-trans').value.toLowerCase();
             const filterMedia = document.getElementById('lib-filter-media').value.toLowerCase();
             const filterTags = document.getElementById('lib-filter-tags').value.toLowerCase();
+            syncLibraryMagazineFilterUi();
             
             const dateStart = document.getElementById('lib-date-start').value;
             const dateEnd = document.getElementById('lib-date-end').value;
@@ -1685,6 +1734,7 @@ function renderLibrary() {
                     pill.innerText = magName;
                     pill.onclick = () => {
                         document.getElementById('lib-filter-mag').value = magName;
+                        syncLibraryMagazineFilterUi();
                         filterLibrary(); // Instantly switch to grid view
                     };
                     magListContainer.appendChild(pill);
