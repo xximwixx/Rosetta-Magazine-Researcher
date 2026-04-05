@@ -21,6 +21,34 @@
             background: var(--bg); color: var(--text); overflow: hidden; 
         }
 
+        /* Tighten up the spacing around Markdown Headings */
+        .content-box.markdown-mode h1, 
+        .content-box.markdown-mode h2, 
+        .content-box.markdown-mode h3, 
+        .content-box.markdown-mode h4, 
+        .content-box.markdown-mode h5, 
+        .content-box.markdown-mode h6 {
+            margin-top: 1em;
+            margin-bottom: 0.2em; /* Pulls the heading closer to the text below it */
+            line-height: 1.3;
+        }
+
+        /* Tighten up the spacing around Markdown Paragraphs */
+        .content-box.markdown-mode p {
+            margin-top: 0.2em; /* Pulls the paragraph closer to the text above it */
+            margin-bottom: 1em;
+        }
+
+        /* Completely remove the gap if a paragraph is directly beneath a heading */
+        .content-box.markdown-mode h1 + p,
+        .content-box.markdown-mode h2 + p,
+        .content-box.markdown-mode h3 + p,
+        .content-box.markdown-mode h4 + p,
+        .content-box.markdown-mode h5 + p,
+        .content-box.markdown-mode h6 + p {
+            margin-top: 0;
+        }
+
         #main-container { 
             display: flex; width: 100vw; flex: 1; /* Takes all remaining height above the toolbar */
             overflow: hidden; 
@@ -2560,16 +2588,15 @@ function renderLibrary() {
             // 1. Clear old boxes from the previous page
             container.querySelectorAll('.spatial-box').forEach(box => box.remove());
 
-            // 2. Draw new boxes
-            if (!coordinatesArray || coordinatesArray.length === 0) return;
+            // 2. Draw new boxes (Added safety checks for malformed JSON)
+            if (!coordinatesArray || !Array.isArray(coordinatesArray) || coordinatesArray.length === 0) return;
 
-            // --- THE FIX: BOX PADDING ---
-            // Gemini uses a 0-1000 grid. "5" equals a 0.5% expansion. 
-            // Increase this to 10 or 15 if you want the boxes to be even looser!
+            // Box Expansion Padding
             const padding = 5; 
 
             coordinatesArray.forEach((item, index) => {
-                // Apply the padding, but use Math.max/min to ensure boxes don't get pushed off the edge of the PDF!
+                if (!item.box || item.box.length < 4) return;
+
                 const ymin = Math.max(0, item.box[0] - padding) / 10;
                 const xmin = Math.max(0, item.box[1] - padding) / 10;
                 const ymax = Math.min(1000, item.box[2] + padding) / 10;
@@ -2583,7 +2610,7 @@ function renderLibrary() {
                 boxDiv.style.height = `${ymax - ymin}%`;
                 boxDiv.style.width = `${xmax - xmin}%`;
                 
-                boxDiv.dataset.jpText = item.text.trim();
+                boxDiv.dataset.jpText = (item.text || "").trim();
                 boxDiv.dataset.index = index; 
 
                 container.appendChild(boxDiv);
@@ -2594,83 +2621,119 @@ function renderLibrary() {
             const allSpatialBoxes = Array.from(document.querySelectorAll('.spatial-box'));
             if (allSpatialBoxes.length === 0) return;
 
-            // Target specific DOM elements so Japanese and English indices match 1:1
             const selectors = 'p, h1, h2, h3, h4, h5, h6, li, th, td';
             const jpElements = Array.from(document.getElementById('jp-box').querySelectorAll(selectors));
             const enElements = Array.from(document.getElementById('en-box').querySelectorAll(selectors));
 
-            // Aggressively clean strings to ensure formatting differences don't ruin the math
+            // Aggressively strips ALL markdown symbols (#, *, etc) so only pure letters/CJK remain!
             function cleanString(str) {
                 if (!str) return "";
-                return str.replace(/[\s\n\r\t.,!?'"()\[\]{}:;*-_　、。！？「」『』（）]/g, '').toLowerCase();
+                return str.normalize("NFKC")
+                          .toLowerCase()
+                          .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g, '');
             }
 
-            const jpTexts = jpElements.map(el => cleanString(el.innerText));
+            const jpTexts = jpElements.map(el => cleanString(el.textContent));
 
-            // Helper function to calculate the Longest Common Substring between two texts
-            function getOverlapLength(s1, s2) {
+            // Bigram Dice Coefficient for fuzzy matching
+            function getSimilarity(s1, s2) {
                 if (!s1 || !s2) return 0;
-                // Fast path: If one is a perfect substring of the other!
-                if (s1.includes(s2)) return s2.length;
-                if (s2.includes(s1)) return s1.length;
+                if (s1 === s2) return 1.0;
+                
+                // Fast path: If one string is fully inside the other, scale score by coverage
+                if (s1.includes(s2) || s2.includes(s1)) {
+                    const min = Math.min(s1.length, s2.length);
+                    const max = Math.max(s1.length, s2.length);
+                    return (min / max) * 0.6 + 0.4; 
+                }
 
-                // Matrix path: Finds the longest sequence of matching characters
-                let maxLen = 0;
-                const dp = Array(s2.length + 1).fill(0);
-                for (let i = 1; i <= s1.length; i++) {
-                    let prev = 0;
-                    for (let j = 1; j <= s2.length; j++) {
-                        let temp = dp[j];
-                        if (s1[i - 1] === s2[j - 1]) {
-                            dp[j] = prev + 1;
-                            if (dp[j] > maxLen) maxLen = dp[j];
-                        } else { dp[j] = 0; }
-                        prev = temp;
+                if (s1.length < 2 || s2.length < 2) return 0;
+
+                const getBigrams = (str) => {
+                    const bg = [];
+                    for (let i = 0; i < str.length - 1; i++) bg.push(str.substring(i, i + 2));
+                    return bg;
+                };
+
+                const bg1 = getBigrams(s1);
+                const bg2 = getBigrams(s2);
+                
+                let intersection = 0;
+                let tempBg2 = [...bg2]; 
+                for (let b of bg1) {
+                    const idx = tempBg2.indexOf(b);
+                    if (idx > -1) {
+                        intersection++;
+                        tempBg2.splice(idx, 1); 
                     }
                 }
-                return maxLen;
-            } // <--- The curly brace was missing here earlier!
+                return (2.0 * intersection) / (bg1.length + bg2.length);
+            }
 
             // ==========================================
-            // PRE-CALCULATE: Assign each Box to the BEST Japanese DOM Element
+            // PRE-CALCULATE: Assign each DOM Element -> to the BEST Spatial Box
             // ==========================================
-            const boxAssignments = new Map(); // box -> index of best jpElement
+            const elementToBox = new Array(jpTexts.length).fill(-1);
+            const boxToElements = new Map(); 
+            
+            allSpatialBoxes.forEach((_, i) => boxToElements.set(i, []));
 
-            allSpatialBoxes.forEach(box => {
-                const boxText = cleanString(box.dataset.jpText);
-                if (!boxText) return;
+            jpTexts.forEach((jpText, elIdx) => {
+                if (!jpText) return;
 
-                let bestIndex = -1;
-                let bestRatio = 0;
+                let bestBoxIdx = -1;
+                let bestSim = 0;
+                let bestLenDiff = Infinity;
+                let bestIdxDiff = Infinity;
 
-                jpTexts.forEach((jpText, idx) => {
-                    if (!jpText) return;
-                    const overlap = getOverlapLength(boxText, jpText);
-                    if (overlap === 0) return;
+                allSpatialBoxes.forEach((box, boxIdx) => {
+                    const boxText = cleanString(box.dataset.jpText);
+                    if (!boxText) return;
 
-                    // Dice Coefficient Ratio: (2 * Match) / (Total Length)
-                    const ratio = (2 * overlap) / (boxText.length + jpText.length);
+                    const sim = getSimilarity(jpText, boxText);
+                    const lenDiff = Math.abs(jpText.length - boxText.length);
+                    
+                    // Normalizes position to a 0.0 - 1.0 scale to safely compare arrays of different lengths
+                    const idxDiff = Math.abs((elIdx / jpTexts.length) - (boxIdx / allSpatialBoxes.length));
+                    
+                    let isBetter = false;
+                    
+                    if (sim > bestSim) {
+                        isBetter = true; // New highest score
+                    } else if (sim === bestSim) {
+                        if (lenDiff < bestLenDiff) {
+                            isBetter = true; // Tie-breaker 1: Closer in total length
+                        } else if (lenDiff === bestLenDiff && idxDiff < bestIdxDiff) {
+                            // TIE-BREAKER 2: Identical repeating text (e.g. Signatures). 
+                            // Pick the box that is structurally closest to this paragraph's location in the article!
+                            isBetter = true; 
+                        }
+                    }
 
-                    if (ratio > bestRatio) {
-                        bestRatio = ratio;
-                        bestIndex = idx;
+                    if (isBetter) {
+                        bestSim = sim;
+                        bestLenDiff = lenDiff;
+                        bestIdxDiff = idxDiff;
+                        bestBoxIdx = boxIdx;
                     }
                 });
 
-                // Assign the box to the paragraph it matched with best!
-                if (bestIndex !== -1 && bestRatio > 0.1) {
-                    boxAssignments.set(box, bestIndex);
+                // 15% threshold ensures tiny text lines can securely snap inside a giant box!
+                if (bestBoxIdx !== -1 && bestSim > 0.15) { 
+                    elementToBox[elIdx] = bestBoxIdx;
+                    boxToElements.get(bestBoxIdx).push(elIdx);
                 }
             });
 
             // ==========================================
-            // APPLY HOVER LOGIC
+            // APPLY HOVER LOGIC (Sidebar -> PDF)
             // ==========================================
             jpElements.forEach((el, index) => {
                 el.addEventListener('mouseenter', () => {
-                    allSpatialBoxes.forEach(box => {
-                        if (boxAssignments.get(box) === index) box.classList.add('active-highlight');
-                    });
+                    const boxIdx = elementToBox[index];
+                    if (boxIdx !== -1 && allSpatialBoxes[boxIdx]) {
+                        allSpatialBoxes[boxIdx].classList.add('active-highlight');
+                    }
                 });
                 el.addEventListener('mouseleave', () => {
                     allSpatialBoxes.forEach(box => box.classList.remove('active-highlight'));
@@ -2683,9 +2746,10 @@ function renderLibrary() {
                     if (correspondingJpElement) {
                         correspondingJpElement.style.backgroundColor = "rgba(138, 180, 248, 0.15)";
                     }
-                    allSpatialBoxes.forEach(box => {
-                        if (boxAssignments.get(box) === index) box.classList.add('active-highlight');
-                    });
+                    const boxIdx = elementToBox[index];
+                    if (boxIdx !== -1 && allSpatialBoxes[boxIdx]) {
+                        allSpatialBoxes[boxIdx].classList.add('active-highlight');
+                    }
                 });
                 
                 el.addEventListener('mouseleave', () => {
@@ -2700,50 +2764,91 @@ function renderLibrary() {
             // ==========================================
             // REVERSE HOVER & CLICK (PDF -> Sidebar)
             // ==========================================
-            allSpatialBoxes.forEach(box => {
-                const targetIndex = boxAssignments.get(box);
-                if (targetIndex === undefined) return;
+            allSpatialBoxes.forEach((box, boxIdx) => {
+                const mappedElements = boxToElements.get(boxIdx) || [];
+                if (mappedElements.length === 0) return;
 
-                // 1. Reverse Hover
                 box.addEventListener('mouseenter', () => {
                     box.classList.add('active-highlight');
-                    if (jpElements[targetIndex]) jpElements[targetIndex].style.backgroundColor = "rgba(0, 212, 255, 0.2)";
-                    if (enElements[targetIndex]) enElements[targetIndex].style.backgroundColor = "rgba(0, 212, 255, 0.2)";
+                    mappedElements.forEach(elIdx => {
+                        if (jpElements[elIdx]) jpElements[elIdx].style.backgroundColor = "rgba(0, 212, 255, 0.2)";
+                        if (enElements[elIdx]) enElements[elIdx].style.backgroundColor = "rgba(0, 212, 255, 0.2)";
+                    });
                 });
 
                 box.addEventListener('mouseleave', () => {
                     box.classList.remove('active-highlight');
-                    if (jpElements[targetIndex]) jpElements[targetIndex].style.backgroundColor = "";
-                    if (enElements[targetIndex]) enElements[targetIndex].style.backgroundColor = "";
+                    mappedElements.forEach(elIdx => {
+                        if (jpElements[elIdx]) jpElements[elIdx].style.backgroundColor = "";
+                        if (enElements[elIdx]) enElements[elIdx].style.backgroundColor = "";
+                    });
                 });
 
-                // 2. Click / Touch Support (Scrolls the sidebar to the translation!)
+                // 2. Click / Touch Support (Toggles scroll between JP and EN)
                 box.addEventListener('click', (e) => {
                     e.preventDefault(); 
+                    if (mappedElements.length === 0) return;
+
+                    // Toggle the scroll target state ('en' <-> 'jp')
+                    // On the very first click, it is empty, so it will default to 'en'
+                    let nextLang = box.dataset.scrollTarget === 'en' ? 'jp' : 'en';
+                    box.dataset.scrollTarget = nextLang;
+
+                    // Try to grab the target element based on the toggle state
+                    let targetEl = nextLang === 'en' ? enElements[mappedElements[0]] : jpElements[mappedElements[0]];
                     
-                    const targetEl = enElements[targetIndex] || jpElements[targetIndex];
+                    // Fallback: If translation is missing, just stick to whatever is available
+                    if (!targetEl) targetEl = enElements[mappedElements[0]] || jpElements[mappedElements[0]];
+
                     if (targetEl) {
+                        // Scroll the sidebar to the element
                         targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        targetEl.style.transition = "background-color 0.3s";
-                        targetEl.style.backgroundColor = "rgba(0, 212, 255, 0.5)";
-                        setTimeout(() => targetEl.style.backgroundColor = "", 1200);
+                        
+                        mappedElements.forEach(elIdx => {
+                            // Flash the Japanese text
+                            if (jpElements[elIdx]) {
+                                jpElements[elIdx].style.transition = "background-color 0.3s";
+                                // Make it brighter if it's the active scroll target
+                                jpElements[elIdx].style.backgroundColor = nextLang === 'jp' ? "rgba(0, 212, 255, 0.6)" : "rgba(0, 212, 255, 0.2)";
+                                setTimeout(() => jpElements[elIdx].style.backgroundColor = "", 1200);
+                            }
+                            // Flash the English text
+                            if (enElements[elIdx]) {
+                                enElements[elIdx].style.transition = "background-color 0.3s";
+                                // Make it brighter if it's the active scroll target
+                                enElements[elIdx].style.backgroundColor = nextLang === 'en' ? "rgba(0, 212, 255, 0.6)" : "rgba(0, 212, 255, 0.2)";
+                                setTimeout(() => enElements[elIdx].style.backgroundColor = "", 1200);
+                            }
+                        });
                     }
                 });
             });
 
             // ==========================================
-            // MAGIC PART 4: Expose data for Search & Inject Manga Text
+            // Expose data for Search & Inject Manga Text
             // ==========================================
-            window.currentBoxAssignments = boxAssignments;
+            window.currentBoxAssignments = new Map();
+            // Reconstruct the old boxAssignments format just for the search pulse feature
+            allSpatialBoxes.forEach((box, boxIdx) => {
+                const mappedElements = boxToElements.get(boxIdx) || [];
+                if (mappedElements.length > 0) window.currentBoxAssignments.set(box, mappedElements[0]);
+            });
             window.currentJpElements = jpElements;
             window.currentEnElements = enElements;
 
-            allSpatialBoxes.forEach(box => {
-                const targetIndex = boxAssignments.get(box);
-                if (targetIndex !== undefined && enElements[targetIndex]) {
+            // In Manga Mode, if a box has multiple paragraphs, we safely combine them!
+            allSpatialBoxes.forEach((box, boxIdx) => {
+                const mappedElements = boxToElements.get(boxIdx) || [];
+                if (mappedElements.length > 0) {
                     const span = document.createElement('span');
                     span.className = 'manga-text';
-                    span.innerText = enElements[targetIndex].innerText;
+                    
+                    // Get English text for all elements assigned to this box and join them with a line break
+                    span.innerText = mappedElements
+                        .map(idx => enElements[idx] ? enElements[idx].innerText : '')
+                        .filter(Boolean)
+                        .join('\n\n');
+                        
                     box.appendChild(span);
                 }
             });
