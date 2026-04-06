@@ -13,6 +13,7 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
@@ -38,14 +39,7 @@ jobs:
     # ---------------------------------------------
     - name: Build Windows EXE
       if: matrix.os == 'windows-latest'
-      run: |
-        pyinstaller --onefile --windowed --icon="rosettaicon.ico" ^
-        --name "Rosetta Magazine Researcher" ^
-        --add-data "app/templates;app/templates" ^
-        --add-data "app/static;app/static" ^
-        --collect-data certifi ^
-        --collect-all fitz ^
-        --hidden-import=yaml app.py
+      run: pyinstaller --onefile --windowed --icon="rosettaicon.ico" --name "Rosetta Magazine Researcher" --add-data "app/templates;app/templates" --add-data "app/static;app/static" --collect-data certifi --collect-all fitz --hidden-import=yaml app.py
 
     - name: Upload Windows File
       if: matrix.os == 'windows-latest'
@@ -60,12 +54,7 @@ jobs:
     - name: Build Mac
       if: matrix.os == 'macos-latest'
       run: |
-        pyinstaller --onefile --windowed --name "Rosetta_Magazine_Researcher" \
-        --add-data "app/templates:app/templates" \
-        --add-data "app/static:app/static" \
-        --collect-data certifi \
-        --collect-all fitz \
-        --hidden-import=yaml app.py
+        pyinstaller --onefile --windowed --name "Rosetta_Magazine_Researcher" --add-data "app/templates:app/templates" --add-data "app/static:app/static" --collect-data certifi --collect-all fitz --hidden-import=yaml app.py
         cd dist
         zip -r Rosetta_Magazine_Researcher_Mac.zip Rosetta_Magazine_Researcher.app
 
@@ -81,13 +70,7 @@ jobs:
     # ---------------------------------------------
     - name: Build Linux
       if: matrix.os == 'ubuntu-latest'
-      run: |
-        pyinstaller --onefile --windowed --name "Rosetta_Magazine_Researcher" \
-        --add-data "app/templates:app/templates" \
-        --add-data "app/static:app/static" \
-        --collect-data certifi \
-        --collect-all fitz \
-        --hidden-import=yaml app.py
+      run: pyinstaller --onefile --windowed --name "Rosetta_Magazine_Researcher" --add-data "app/templates:app/templates" --add-data "app/static:app/static" --collect-data certifi --collect-all fitz --hidden-import=yaml app.py
 
     - name: Upload Linux File
       if: matrix.os == 'ubuntu-latest'
