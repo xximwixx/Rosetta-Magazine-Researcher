@@ -78,13 +78,55 @@
             transition: height 0.15s ease-out; 
         }
         
+        /* Update the main footer container */
         .controls { 
-            /* Replaced position: fixed with a standard structural footer layout */
-            width: 100vw; flex-shrink: 0; box-sizing: border-box;
-            background: #202124; padding: 10px 20px; 
-            display: flex; gap: 15px; align-items: center; justify-content: center; 
-            border-top: 1px solid #3c4043; color: white; z-index: 3000;
-            flex-wrap: wrap; /* Safely wraps to a second row only if the window gets super small */
+            width: 100vw; 
+            flex-shrink: 0; 
+            box-sizing: border-box;
+            background: #202124; 
+            padding: 8px 20px; /* Reduced vertical padding slightly */
+            display: flex; 
+            flex-direction: column; /* Stack rows vertically */
+            gap: 8px; 
+            align-items: center; 
+            border-top: 1px solid #3c4043; 
+            color: white; 
+            z-index: 3000;
+        }
+
+        /* Style the two internal rows */
+        .controls-row {
+            display: flex;
+            width: 100%;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        /* Make the magazine input much larger */
+        #mag-input {
+            width: 100% !important;
+            max-width: 900px;
+            
+            /* These values match your global input styles exactly */
+            background: #323639;
+            color: white;
+            border: 1px solid #5f6368;
+            padding: 5px 10px; 
+            border-radius: 4px;
+            outline: none;
+            
+            /* Remove the previously added bold/accent styles */
+            font-size: 14px;
+            font-weight: bold;
+            text-align: left;
+            text-overflow: ellipsis;
+        }
+
+        /* Add a subtle highlight when focused to match other inputs */
+        #mag-input:focus {
+            border-color: var(--accent);
+            background: #202124;
         }
 
         .show-all-zones .spatial-box {
@@ -917,6 +959,15 @@
     </div>
 
     <div class="controls">
+    <!-- TOP ROW: Primary Magazine Selection -->
+    <div class="controls-row">
+        <input type="text" id="mag-input" list="mag-select-list" placeholder="Search installed magazines..." onclick="this.select()">
+        <datalist id="mag-select-list"></datalist>
+        <select id="mag-select" style="display:none;"></select>
+    </div>
+
+    <!-- BOTTOM ROW: Tools, Navigation, and Zoom -->
+    <div class="controls-row">
         <button id="lib-btn" class="ctrl-btn" onclick="toggleLibrary()">📚 Library</button>
         <button id="sidebar-toggle" class="ctrl-btn" onclick="toggleSidebar()">🔍 Search</button>
         <div class="divider"></div>
@@ -928,28 +979,33 @@
         <button id="edit-btn" class="ctrl-btn" onclick="toggleEdit()">✏️ Edit</button>
         <button id="save-btn" class="ctrl-btn" style="display:none; background:#28a745;" onclick="saveCorrections()">💾 Save</button>
         <button id="bookmark-btn" class="ctrl-btn" onclick="toggleBookmark()">⭐</button>
+        
         <div class="divider"></div>
-        <input type="text" id="mag-input" list="mag-select-list" style="width:260px; text-overflow: ellipsis;" placeholder="Search installed..." onclick="this.select()">
-        <datalist id="mag-select-list"></datalist>
-        <select id="mag-select" style="display:none;"></select>
         
         <button class="ctrl-btn" onclick="changePage(-1)">Prev</button>
         <input type="number" id="page-num" value="1" min="1" style="width: 48px; text-align: center;">
         <button class="ctrl-btn" onclick="changePage(1)">Next</button>
+        
         <div class="divider"></div>
-        <div style="display:flex; align-items:center; gap:12px;">
-    <button class="ctrl-btn" onclick="adjustImgZoom(-15)">🔍-</button>
-    <input type="text" id="zoom-input" value="100%" style="width: 45px; text-align: center; font-size: 11px; padding: 2px; background: transparent; border: 1px solid #5f6368; color: #9aa0a6; outline: none; border-radius: 4px;" onchange="setImgZoom(this.value)" onclick="this.select()">
-    <button class="ctrl-btn" onclick="adjustImgZoom(15)">🔍+</button>
-    <div class="divider"></div>
 
-    <span style="font-size: 11px; color: #9aa0a6;">Font</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+            <button class="ctrl-btn" onclick="adjustImgZoom(-15)">🔍-</button>
+            <input type="text" id="zoom-input" value="100%" style="width: 45px; text-align: center; font-size: 11px; padding: 2px; background: transparent; border: 1px solid #5f6368; color: #9aa0a6; outline: none; border-radius: 4px;" onchange="setImgZoom(this.value)" onclick="this.select()">
+            <button class="ctrl-btn" onclick="adjustImgZoom(15)">🔍+</button>
+            
+            <div class="divider"></div>
+            
+            <span style="font-size: 11px; color: #9aa0a6;">Font</span>
             <input type="range" min="12" max="40" value="17" oninput="updateFont(this.value)">
+            
+            <div class="divider"></div>
+
             <label class="check-item"><input type="checkbox" id="check-jp" checked onchange="toggleSec('sec-jp-container', this.checked)"> Transcription</label>
             <label class="check-item"><input type="checkbox" id="check-en" checked onchange="toggleSec('sec-en-container', this.checked)"> Translation</label>
             <label class="check-item"><input type="checkbox" id="check-sum" checked onchange="toggleSec('sec-sum-container', this.checked)"> Summary</label>
         </div>
     </div>
+</div>
 
     <script>
         // Tell the Markdown parser to respect single line breaks
