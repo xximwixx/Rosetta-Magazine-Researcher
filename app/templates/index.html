@@ -2709,32 +2709,42 @@ function renderLibrary() {
             // 1. Clear old boxes from the previous page
             container.querySelectorAll('.spatial-box').forEach(box => box.remove());
 
-            // 2. Draw new boxes (Added safety checks for malformed JSON)
+            // 2. Draw new boxes (Supports both flat arrays and nested multi-column arrays)
             if (!coordinatesArray || !Array.isArray(coordinatesArray) || coordinatesArray.length === 0) return;
 
-            // Box Expansion Padding
             const padding = 5; 
 
             coordinatesArray.forEach((item, index) => {
-                if (!item.box || item.box.length < 4) return;
+                // Backward compatibility: If it's the old 'box' flat array, wrap it in a list.
+                // If it's the new 'boxes' list of lists, use it directly.
+                const boxesList = item.boxes || (item.box ? [item.box] :[]);
 
-                const ymin = Math.max(0, item.box[0] - padding) / 10;
-                const xmin = Math.max(0, item.box[1] - padding) / 10;
-                const ymax = Math.min(1000, item.box[2] + padding) / 10;
-                const xmax = Math.min(1000, item.box[3] + padding) / 10;
+                boxesList.forEach((boxCoords, partIndex) => {
+                    // Ensure valid coordinates
+                    if (!Array.isArray(boxCoords) || boxCoords.length < 4) return;
+                    
+                    // Skip if the AI returned a missing [0,0,0,0] box
+                    if (boxCoords[0] === 0 && boxCoords[1] === 0 && boxCoords[2] === 0 && boxCoords[3] === 0) return;
 
-                const boxDiv = document.createElement('div');
-                boxDiv.className = 'spatial-box';
-                
-                boxDiv.style.top = `${ymin}%`;
-                boxDiv.style.left = `${xmin}%`;
-                boxDiv.style.height = `${ymax - ymin}%`;
-                boxDiv.style.width = `${xmax - xmin}%`;
-                
-                boxDiv.dataset.jpText = (item.text || "").trim();
-                boxDiv.dataset.index = index; 
+                    const ymin = Math.max(0, boxCoords[0] - padding) / 10;
+                    const xmin = Math.max(0, boxCoords[1] - padding) / 10;
+                    const ymax = Math.min(1000, boxCoords[2] + padding) / 10;
+                    const xmax = Math.min(1000, boxCoords[3] + padding) / 10;
 
-                container.appendChild(boxDiv);
+                    const boxDiv = document.createElement('div');
+                    boxDiv.className = 'spatial-box';
+                    
+                    boxDiv.style.top = `${ymin}%`;
+                    boxDiv.style.left = `${xmin}%`;
+                    boxDiv.style.height = `${ymax - ymin}%`;
+                    boxDiv.style.width = `${xmax - xmin}%`;
+                    
+                    boxDiv.dataset.jpText = (item.text || "").trim();
+                    boxDiv.dataset.index = index; 
+                    boxDiv.dataset.part = partIndex; // Tracks if this is part 0, 1, or 2 of a split sentence
+
+                    container.appendChild(boxDiv);
+                });
             });
         }
 
@@ -2746,7 +2756,6 @@ function renderLibrary() {
             const jpElements = Array.from(document.getElementById('jp-box').querySelectorAll(selectors));
             const enElements = Array.from(document.getElementById('en-box').querySelectorAll(selectors));
 
-            // Aggressively strips ALL markdown symbols (#, *, etc) so only pure letters/CJK remain!
             function cleanString(str) {
                 if (!str) return "";
                 return str.normalize("NFKC")
@@ -2756,22 +2765,18 @@ function renderLibrary() {
 
             const jpTexts = jpElements.map(el => cleanString(el.textContent));
 
-            // Bigram Dice Coefficient for fuzzy matching
             function getSimilarity(s1, s2) {
                 if (!s1 || !s2) return 0;
                 if (s1 === s2) return 1.0;
-                
-                // Fast path: If one string is fully inside the other, scale score by coverage
                 if (s1.includes(s2) || s2.includes(s1)) {
                     const min = Math.min(s1.length, s2.length);
                     const max = Math.max(s1.length, s2.length);
                     return (min / max) * 0.6 + 0.4; 
                 }
-
                 if (s1.length < 2 || s2.length < 2) return 0;
 
                 const getBigrams = (str) => {
-                    const bg = [];
+                    const bg =[];
                     for (let i = 0; i < str.length - 1; i++) bg.push(str.substring(i, i + 2));
                     return bg;
                 };
@@ -2791,42 +2796,43 @@ function renderLibrary() {
                 return (2.0 * intersection) / (bg1.length + bg2.length);
             }
 
-            // ==========================================
-            // PRE-CALCULATE: Assign each DOM Element -> to the BEST Spatial Box
-            // ==========================================
-            const elementToBox = new Array(jpTexts.length).fill(-1);
-            const boxToElements = new Map(); 
-            
-            allSpatialBoxes.forEach((_, i) => boxToElements.set(i, []));
+            // Map DOM elements to the Logical dataset.index
+            const elementToLogicalIdx = new Array(jpTexts.length).fill(null);
+            const logicalIdxToElements = new Map(); 
 
+            // Group boxes by their logical dataset.index
+            const logicalGroups = new Map();
+            allSpatialBoxes.forEach(box => {
+                const idx = box.dataset.index;
+                if (!logicalGroups.has(idx)) logicalGroups.set(idx,[]);
+                logicalGroups.get(idx).push(box);
+            });
+
+            // Map each JP Element to a Logical Group
             jpTexts.forEach((jpText, elIdx) => {
                 if (!jpText) return;
 
-                let bestBoxIdx = -1;
+                let bestLogicalIdx = null;
                 let bestSim = 0;
                 let bestLenDiff = Infinity;
                 let bestIdxDiff = Infinity;
 
-                allSpatialBoxes.forEach((box, boxIdx) => {
-                    const boxText = cleanString(box.dataset.jpText);
+                logicalGroups.forEach((boxes, logicalIdx) => {
+                    const boxText = cleanString(boxes[0].dataset.jpText);
                     if (!boxText) return;
 
                     const sim = getSimilarity(jpText, boxText);
                     const lenDiff = Math.abs(jpText.length - boxText.length);
-                    
-                    // Normalizes position to a 0.0 - 1.0 scale to safely compare arrays of different lengths
-                    const idxDiff = Math.abs((elIdx / jpTexts.length) - (boxIdx / allSpatialBoxes.length));
+                    const idxDiff = Math.abs((elIdx / jpTexts.length) - (parseInt(logicalIdx) / logicalGroups.size));
                     
                     let isBetter = false;
                     
                     if (sim > bestSim) {
-                        isBetter = true; // New highest score
+                        isBetter = true; 
                     } else if (sim === bestSim) {
                         if (lenDiff < bestLenDiff) {
-                            isBetter = true; // Tie-breaker 1: Closer in total length
+                            isBetter = true; 
                         } else if (lenDiff === bestLenDiff && idxDiff < bestIdxDiff) {
-                            // TIE-BREAKER 2: Identical repeating text (e.g. Signatures). 
-                            // Pick the box that is structurally closest to this paragraph's location in the article!
                             isBetter = true; 
                         }
                     }
@@ -2835,142 +2841,116 @@ function renderLibrary() {
                         bestSim = sim;
                         bestLenDiff = lenDiff;
                         bestIdxDiff = idxDiff;
-                        bestBoxIdx = boxIdx;
+                        bestLogicalIdx = logicalIdx;
                     }
                 });
 
-                // 15% threshold ensures tiny text lines can securely snap inside a giant box!
-                if (bestBoxIdx !== -1 && bestSim > 0.15) { 
-                    elementToBox[elIdx] = bestBoxIdx;
-                    boxToElements.get(bestBoxIdx).push(elIdx);
+                if (bestLogicalIdx !== null && bestSim > 0.15) { 
+                    elementToLogicalIdx[elIdx] = bestLogicalIdx;
+                    if (!logicalIdxToElements.has(bestLogicalIdx)) logicalIdxToElements.set(bestLogicalIdx,[]);
+                    logicalIdxToElements.get(bestLogicalIdx).push(elIdx);
                 }
             });
 
-            // ==========================================
-            // APPLY HOVER LOGIC (Sidebar -> PDF)
-            // ==========================================
+            // Utility to highlight/unhighlight all boxes in a logical group
+            const toggleBoxHighlight = (logicalIdx, forceState) => {
+                const boxes = logicalGroups.get(logicalIdx);
+                if (boxes) boxes.forEach(b => forceState ? b.classList.add('active-highlight') : b.classList.remove('active-highlight'));
+            };
+
+            // Sidebar -> PDF Hovers
             jpElements.forEach((el, index) => {
-                el.addEventListener('mouseenter', () => {
-                    const boxIdx = elementToBox[index];
-                    if (boxIdx !== -1 && allSpatialBoxes[boxIdx]) {
-                        allSpatialBoxes[boxIdx].classList.add('active-highlight');
-                    }
-                });
-                el.addEventListener('mouseleave', () => {
-                    allSpatialBoxes.forEach(box => box.classList.remove('active-highlight'));
-                });
+                el.addEventListener('mouseenter', () => toggleBoxHighlight(elementToLogicalIdx[index], true));
+                el.addEventListener('mouseleave', () => toggleBoxHighlight(elementToLogicalIdx[index], false));
             });
 
             enElements.forEach((el, index) => {
                 el.addEventListener('mouseenter', () => {
-                    const correspondingJpElement = jpElements[index];
-                    if (correspondingJpElement) {
-                        correspondingJpElement.style.backgroundColor = "rgba(138, 180, 248, 0.15)";
-                    }
-                    const boxIdx = elementToBox[index];
-                    if (boxIdx !== -1 && allSpatialBoxes[boxIdx]) {
-                        allSpatialBoxes[boxIdx].classList.add('active-highlight');
-                    }
+                    if (jpElements[index]) jpElements[index].style.backgroundColor = "rgba(138, 180, 248, 0.15)";
+                    toggleBoxHighlight(elementToLogicalIdx[index], true);
                 });
-                
                 el.addEventListener('mouseleave', () => {
-                    const correspondingJpElement = jpElements[index];
-                    if (correspondingJpElement) {
-                        correspondingJpElement.style.backgroundColor = "";
-                    }
-                    allSpatialBoxes.forEach(box => box.classList.remove('active-highlight'));
+                    if (jpElements[index]) jpElements[index].style.backgroundColor = "";
+                    toggleBoxHighlight(elementToLogicalIdx[index], false);
                 });
             });
 
-            // ==========================================
-            // REVERSE HOVER & CLICK (PDF -> Sidebar)
-            // ==========================================
-            allSpatialBoxes.forEach((box, boxIdx) => {
-                const mappedElements = boxToElements.get(boxIdx) || [];
+            // PDF -> Sidebar Hovers & Clicks
+            logicalGroups.forEach((boxes, logicalIdx) => {
+                const mappedElements = logicalIdxToElements.get(logicalIdx) ||[];
                 if (mappedElements.length === 0) return;
 
-                box.addEventListener('mouseenter', () => {
-                    box.classList.add('active-highlight');
-                    mappedElements.forEach(elIdx => {
-                        if (jpElements[elIdx]) jpElements[elIdx].style.backgroundColor = "rgba(0, 212, 255, 0.2)";
-                        if (enElements[elIdx]) enElements[elIdx].style.backgroundColor = "rgba(0, 212, 255, 0.2)";
-                    });
-                });
-
-                box.addEventListener('mouseleave', () => {
-                    box.classList.remove('active-highlight');
-                    mappedElements.forEach(elIdx => {
-                        if (jpElements[elIdx]) jpElements[elIdx].style.backgroundColor = "";
-                        if (enElements[elIdx]) enElements[elIdx].style.backgroundColor = "";
-                    });
-                });
-
-                // 2. Click / Touch Support (Toggles scroll between JP and EN)
-                box.addEventListener('click', (e) => {
-                    e.preventDefault(); 
-                    if (mappedElements.length === 0) return;
-
-                    // Toggle the scroll target state ('en' <-> 'jp')
-                    // On the very first click, it is empty, so it will default to 'en'
-                    let nextLang = box.dataset.scrollTarget === 'en' ? 'jp' : 'en';
-                    box.dataset.scrollTarget = nextLang;
-
-                    // Try to grab the target element based on the toggle state
-                    let targetEl = nextLang === 'en' ? enElements[mappedElements[0]] : jpElements[mappedElements[0]];
-                    
-                    // Fallback: If translation is missing, just stick to whatever is available
-                    if (!targetEl) targetEl = enElements[mappedElements[0]] || jpElements[mappedElements[0]];
-
-                    if (targetEl) {
-                        // Scroll the sidebar to the element
-                        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        
+                boxes.forEach(box => {
+                    box.addEventListener('mouseenter', () => {
+                        toggleBoxHighlight(logicalIdx, true);
                         mappedElements.forEach(elIdx => {
-                            // Flash the Japanese text
-                            if (jpElements[elIdx]) {
-                                jpElements[elIdx].style.transition = "background-color 0.3s";
-                                // Make it brighter if it's the active scroll target
-                                jpElements[elIdx].style.backgroundColor = nextLang === 'jp' ? "rgba(0, 212, 255, 0.6)" : "rgba(0, 212, 255, 0.2)";
-                                setTimeout(() => jpElements[elIdx].style.backgroundColor = "", 1200);
-                            }
-                            // Flash the English text
-                            if (enElements[elIdx]) {
-                                enElements[elIdx].style.transition = "background-color 0.3s";
-                                // Make it brighter if it's the active scroll target
-                                enElements[elIdx].style.backgroundColor = nextLang === 'en' ? "rgba(0, 212, 255, 0.6)" : "rgba(0, 212, 255, 0.2)";
-                                setTimeout(() => enElements[elIdx].style.backgroundColor = "", 1200);
-                            }
+                            if (jpElements[elIdx]) jpElements[elIdx].style.backgroundColor = "rgba(0, 212, 255, 0.2)";
+                            if (enElements[elIdx]) enElements[elIdx].style.backgroundColor = "rgba(0, 212, 255, 0.2)";
                         });
-                    }
+                    });
+
+                    box.addEventListener('mouseleave', () => {
+                        toggleBoxHighlight(logicalIdx, false);
+                        mappedElements.forEach(elIdx => {
+                            if (jpElements[elIdx]) jpElements[elIdx].style.backgroundColor = "";
+                            if (enElements[elIdx]) enElements[elIdx].style.backgroundColor = "";
+                        });
+                    });
+
+                    box.addEventListener('click', (e) => {
+                        e.preventDefault(); 
+                        if (mappedElements.length === 0) return;
+
+                        let nextLang = box.dataset.scrollTarget === 'en' ? 'jp' : 'en';
+                        boxes.forEach(b => b.dataset.scrollTarget = nextLang); // Sync state across all split boxes
+
+                        let targetEl = nextLang === 'en' ? enElements[mappedElements[0]] : jpElements[mappedElements[0]];
+                        if (!targetEl) targetEl = enElements[mappedElements[0]] || jpElements[mappedElements[0]];
+
+                        if (targetEl) {
+                            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            
+                            mappedElements.forEach(elIdx => {
+                                if (jpElements[elIdx]) {
+                                    jpElements[elIdx].style.transition = "background-color 0.3s";
+                                    jpElements[elIdx].style.backgroundColor = nextLang === 'jp' ? "rgba(0, 212, 255, 0.6)" : "rgba(0, 212, 255, 0.2)";
+                                    setTimeout(() => jpElements[elIdx].style.backgroundColor = "", 1200);
+                                }
+                                if (enElements[elIdx]) {
+                                    enElements[elIdx].style.transition = "background-color 0.3s";
+                                    enElements[elIdx].style.backgroundColor = nextLang === 'en' ? "rgba(0, 212, 255, 0.6)" : "rgba(0, 212, 255, 0.2)";
+                                    setTimeout(() => enElements[elIdx].style.backgroundColor = "", 1200);
+                                }
+                            });
+                        }
+                    });
                 });
             });
 
-            // ==========================================
-            // Expose data for Search & Inject Manga Text
-            // ==========================================
+            // Expose data for Search feature
             window.currentBoxAssignments = new Map();
-            // Reconstruct the old boxAssignments format just for the search pulse feature
-            allSpatialBoxes.forEach((box, boxIdx) => {
-                const mappedElements = boxToElements.get(boxIdx) || [];
+            allSpatialBoxes.forEach(box => {
+                const mappedElements = logicalIdxToElements.get(box.dataset.index) ||[];
                 if (mappedElements.length > 0) window.currentBoxAssignments.set(box, mappedElements[0]);
             });
             window.currentJpElements = jpElements;
             window.currentEnElements = enElements;
 
-            // In Manga Mode, if a box has multiple paragraphs, we safely combine them!
-            allSpatialBoxes.forEach((box, boxIdx) => {
-                const mappedElements = boxToElements.get(boxIdx) || [];
+            // MANGA MODE INJECTION
+            logicalGroups.forEach((boxes, logicalIdx) => {
+                const mappedElements = logicalIdxToElements.get(logicalIdx) ||[];
                 if (mappedElements.length > 0) {
                     const span = document.createElement('span');
                     span.className = 'manga-text';
                     
-                    // Get English text for all elements assigned to this box and join them with a line break
                     span.innerText = mappedElements
                         .map(idx => enElements[idx] ? enElements[idx].innerText : '')
                         .filter(Boolean)
                         .join('\n\n');
                         
-                    box.appendChild(span);
+                    // Only inject text into the FIRST box of a split paragraph to prevent duplicates!
+                    const primaryBox = boxes.find(b => b.dataset.part === "0") || boxes[0];
+                    primaryBox.appendChild(span);
                 }
             });
         }
