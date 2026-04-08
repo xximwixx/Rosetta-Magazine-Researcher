@@ -2437,15 +2437,22 @@ function renderLibrary() {
             try {
                 const res = await fetch('/api/save', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
                 if(res.ok) { 
-                    btn.innerText = "💾 Save"; 
-                    closeContentEditor(); 
-                    closeMetadataEditor(); 
+                    // 1. Show a brief success message on the button, then revert it
+                    btn.innerText = "✅ Saved!"; 
+                    setTimeout(() => btn.innerText = "💾 Save", 2000);
                     
-                    // FIX: Properly turn off Edit Mode without getting the UI trapped!
-                    if (isEditing) { toggleEdit(); } 
+                    // 2. Update the local cache silently so we don't have to reload the page!
+                    if (currentRawData) {
+                        currentRawData.jp = payload.jp;
+                        currentRawData.en = payload.en;
+                        currentRawData.sum = payload.sum;
+                        currentRawData.raw_meta = payload.meta;
+                        
+                        // Also update the hidden viewer titles so they are ready when you exit Edit Mode
+                        currentRawData.metadata = parseMetadataText(payload.meta).fields;
+                        renderMetadata(currentRawData.metadata, payload.page, payload.mag);
+                    }
                     
-                    // Delay the refresh slightly to ensure the server finishes writing the file to disk
-                    setTimeout(() => { update(); }, 200); 
                 } else {
                     btn.innerText = "❌ Error";
                     setTimeout(() => btn.innerText = "💾 Save", 2000);
