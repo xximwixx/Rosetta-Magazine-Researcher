@@ -2365,14 +2365,24 @@ function renderLibrary() {
                 if (isMarkdown) {
                     // THE FIX: Escape ampersands first, then brackets.
                     // This ensures the ampersand in &lt; doesn't get double-encoded.
-                    const safeText = content
+                    let safeText = content
                         .replace(/&/g, "&amp;")
                         .replace(/</g, "&lt;")
                         .replace(/>/g, "&gt;");
                     
+                    // --- START OF NEW FIX ---
+                    // Normalize Japanese Markdown lists so they generate the exact same HTML tags as the English side!
+                    if (id === 'jp-box') {
+                        // 1. Convert Japanese bullet points '・' into standard standard bullets '- '
+                        safeText = safeText.replace(/^\s*・/gm, '- '); 
+                        // 2. Add a space after numbered lists (e.g., '1.「' becomes '1. 「')
+                        safeText = safeText.replace(/^\s*([0-9]+\.)([^\s])/gm, '$1 $2'); 
+                    }
+                    // --- END OF NEW FIX ---
+
                     el.innerHTML = marked.parse(safeText); 
                     el.classList.add('markdown-mode'); 
-                } else { 
+                } else {
                     el.innerText = content; 
                     el.classList.remove('markdown-mode'); 
                 }
@@ -2752,7 +2762,7 @@ function renderLibrary() {
             const allSpatialBoxes = Array.from(document.querySelectorAll('.spatial-box'));
             if (allSpatialBoxes.length === 0) return;
 
-            const selectors = 'p, h1, h2, h3, h4, h5, h6, li, th, td';
+            const selectors = 'p, h1, h2, h3, h4, h5, h6, ul, ol, table';
             const jpElements = Array.from(document.getElementById('jp-box').querySelectorAll(selectors));
             const enElements = Array.from(document.getElementById('en-box').querySelectorAll(selectors));
 
